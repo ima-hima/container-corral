@@ -12,6 +12,8 @@ export const DEFAULT_SETTINGS = {
   newTabPosition: "rightmost",
   // Open a blank new tab (Ctrl+T, "+") in the current tab's container.
   newTabInheritsContainer: false,
+  // Where a brand-new container group is created: "new" window, or "current".
+  newGroupWindow: "new",
 };
 
 // contextualIdentities colours -> tabGroups.Color values

@@ -6,6 +6,12 @@ const CHECKBOX_FIELDS = [
   "newTabInheritsContainer",
 ];
 
+// radio group name -> allowed values, default first
+const RADIO_FIELDS = {
+  newTabPosition: ["rightmost", "leftmost"],
+  newGroupWindow: ["new", "current"],
+};
+
 const MATCH_LABELS = {
   domain: "Domain + subdomains",
   exact: "Exact host",
@@ -23,11 +29,13 @@ async function restoreSettings() {
   for (const id of CHECKBOX_FIELDS) {
     document.getElementById(id).checked = Boolean(s[id]);
   }
-  const pos = s.newTabPosition === "leftmost" ? "leftmost" : "rightmost";
-  const radio = document.querySelector(
-    `input[name="newTabPosition"][value="${pos}"]`
-  );
-  if (radio) radio.checked = true;
+  for (const [name, values] of Object.entries(RADIO_FIELDS)) {
+    const v = values.includes(s[name]) ? s[name] : values[0];
+    const radio = document.querySelector(
+      `input[name="${name}"][value="${v}"]`
+    );
+    if (radio) radio.checked = true;
+  }
 }
 
 async function saveSettings() {
@@ -35,10 +43,10 @@ async function saveSettings() {
   for (const id of CHECKBOX_FIELDS) {
     s[id] = document.getElementById(id).checked;
   }
-  const picked = document.querySelector(
-    'input[name="newTabPosition"]:checked'
-  );
-  s.newTabPosition = picked && picked.value === "leftmost" ? "leftmost" : "rightmost";
+  for (const [name, values] of Object.entries(RADIO_FIELDS)) {
+    const picked = document.querySelector(`input[name="${name}"]:checked`);
+    s[name] = picked && values.includes(picked.value) ? picked.value : values[0];
+  }
   await browser.storage.local.set({ settings: s });
 }
 
@@ -166,10 +174,10 @@ async function init() {
   for (const id of CHECKBOX_FIELDS) {
     document.getElementById(id).addEventListener("change", saveSettings);
   }
-  for (const radio of document.querySelectorAll(
-    'input[name="newTabPosition"]'
-  )) {
-    radio.addEventListener("change", saveSettings);
+  for (const name of Object.keys(RADIO_FIELDS)) {
+    for (const radio of document.querySelectorAll(`input[name="${name}"]`)) {
+      radio.addEventListener("change", saveSettings);
+    }
   }
 
   fillContainerSelect(document.getElementById("newContainer"));

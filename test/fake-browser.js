@@ -24,6 +24,7 @@ export function makeFakeBrowser(init = {}) {
   const state = {
     nextTabId: 1,
     nextGroupId: 1,
+    nextWindowId: 100,
     tabs: [], // ordered; per-window order == tab order in this array
     groups: [], // { id, title, color, windowId, collapsed }
     incognitoWindows: new Set(init.incognitoWindows || []),
@@ -280,6 +281,23 @@ export function makeFakeBrowser(init = {}) {
     async update(id, props) {
       if (props.focused) state.focusedWindowId = id;
       return { id, ...props };
+    },
+    async create(props = {}) {
+      const id = state.nextWindowId++;
+      if (props.tabId != null) {
+        const t = state.tabs.find((x) => x.id === props.tabId);
+        if (t) {
+          state.tabs = state.tabs.filter((x) => x !== t);
+          t.windowId = id;
+          t.groupId = -1;
+          t.active = true;
+          state.tabs.push(t);
+          reindex();
+          dropEmptyGroups();
+        }
+      }
+      if (props.focused !== false) state.focusedWindowId = id;
+      return { id, incognito: false, type: "normal", focused: props.focused !== false };
     },
   };
 
