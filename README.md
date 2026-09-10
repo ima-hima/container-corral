@@ -108,16 +108,19 @@ would empty Firefox's last remaining window.
 **New-tab container inheritance** (off by default)
 
 - `tabs.onActivated` keeps a `windowId → active cookieStoreId` map.
-- A new blank default-container tab is held for a ~900 ms grace period, then
-  re-created in the window's active container. Firefox reports `about:blank` at
-  `onCreated` even for a tab opened *for a URL* — `tabs.create({url})`
-  (1Password's "Open and Fill"), an external-app link, `window.open` — and
-  `about:blank` can even reach `status: "complete"` before that navigation
-  commits. So any real navigation cancels the pending inheritance: the blocking
-  `webRequest` listener drops it the instant a top-level request goes out, and
-  `tabs.onUpdated` drops it if the URL turns into anything non-blank. Settling on
-  `about:newtab` / `about:home` triggers the inheritance early instead of waiting
-  out the grace period.
+- A new blank, opener-less, default-container tab is *not* touched right away —
+  Firefox reports `about:blank` at `onCreated` even for a tab opened *for a URL*
+  (`tabs.create({url})`, an external-app link, `window.open`), and re-creating it
+  then would drop the URL. Instead the extension waits for one of two signals:
+  - the tab settles on `about:newtab` / `about:home` → it's a genuine idle new
+    tab, so it's re-created in the active container now (`tabs.onUpdated`);
+  - the tab makes a top-level navigation → the blocking `webRequest` listener
+    reopens it in the active container **carrying that URL** — the same
+    mechanism as a site rule, so nothing is lost. A matching site rule wins over
+    the inherited container.
+- A blank tab you open and never navigate stays in no container. If your new-tab
+  page is set to a blank page (not Firefox Home), a fresh `Ctrl+T` tab isn't
+  moved into the container until you navigate it somewhere.
 - Links from other Firefox tabs are untouched (Firefox already opens them in
   their opener's container).
 

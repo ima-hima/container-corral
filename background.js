@@ -457,15 +457,18 @@ function wasJustRouted(url) {
 
 async function handleRequest(details) {
   if (details.tabId < 0 || details.frameId !== 0) return {};
-
-  // A pending-inheritance tab that makes a top-level request is navigating
-  // somewhere (external link, tabs.create({url}), window.open) — it's not an
-  // idle new tab, so don't re-open it blank in a container.
-  dropInheritCandidate(details.tabId);
-
-  const rule = matchRule(details.url, rules);
-  if (!rule) return {};
   if (wasJustRouted(details.url)) return {};
+
+  // A blank new tab that was waiting to inherit a container is now navigating
+  // somewhere — send it into that container *carrying this URL* (an external
+  // link, tabs.create({url}), etc.). A matching site rule wins over inheritance.
+  const rule = matchRule(details.url, rules);
+  const targetStore = rule
+    ? rule.cookieStoreId
+    : pendingInherit.get(details.tabId);
+  if (!targetStore) return {};
+
+  pendingInherit.delete(details.tabId);
 
   let tab;
   try {
@@ -474,7 +477,7 @@ async function handleRequest(details) {
     return {};
   }
 
-  const acted = await reopenInContainer(tab, rule.cookieStoreId, details.url);
+  const acted = await reopenInContainer(tab, targetStore, details.url);
   return acted ? { cancel: true } : {};
 }
 
@@ -684,10 +687,9 @@ async function maybeInheritContainer(tabId, inheritFrom) {
     return; // tab already gone
   }
 
-  // By now (called on a delay) a tab that was really headed somewhere — e.g.
-  // one opened by 1Password's "Open and Fill" — has a real URL, so
-  // containerToInherit rejects it. Only a still-blank tab is one the user
-  // opened themselves.
+  // Re-check: if the tab has picked up a real URL since we queued this, it
+  // wasn't an idle new tab after all — containerToInherit rejects a non-blank
+  // URL, so leave it alone.
   const target = containerToInherit(newTab, {
     enabled: settings.newTabInheritsContainer,
     now: Date.now(),
@@ -702,12 +704,14 @@ async function maybeInheritContainer(tabId, inheritFrom) {
     return;
   }
 
+  const keepUrl = /^about:(newtab|home)$/i.test(newTab.url || "");
   try {
     await browser.tabs.create({
       cookieStoreId: target,
       windowId: newTab.windowId,
       index: newTab.index,
       active: newTab.active,
+      ...(keepUrl ? { url: newTab.url } : {}),
     });
     await browser.tabs.remove(newTab.id);
   } catch (err) {
@@ -757,30 +761,18 @@ browser.tabs.onActivated.addListener(({ tabId, windowId }) => {
   trackActive(windowId, tabId);
 });
 
-// New default-container tabs we might re-open in the active container. We hold
-// off for a grace period first: Firefox reports about:blank at onCreated even
-// for tabs opened *for a URL* — tabs.create({ url }), an external-app link,
-// window.open — and about:blank itself can reach status "complete" before that
-// navigation commits. Re-creating the tab then would drop the URL. Any real
-// navigation (handleRequest / onUpdated) cancels the pending inheritance.
-// tabId -> { inheritFrom, timer }
-const inheritCandidates = new Map();
-let inheritGraceMs = 900;
-
-function dropInheritCandidate(tabId) {
-  const c = inheritCandidates.get(tabId);
-  if (!c) return;
-  clearTimeout(c.timer);
-  inheritCandidates.delete(tabId);
-}
-
-function runInherit(tabId) {
-  const c = inheritCandidates.get(tabId);
-  if (!c) return;
-  clearTimeout(c.timer);
-  inheritCandidates.delete(tabId);
-  serialize(() => maybeInheritContainer(tabId, c.inheritFrom));
-}
+// Blank, opener-less, default-container new tabs opened while a container was
+// active. We don't touch them immediately (Firefox reports about:blank at
+// onCreated even for a tab opened *for a URL* — tabs.create({url}), an
+// external-app link, window.open — and re-creating it then would drop the URL).
+// Instead we wait for a signal:
+//   - the tab settles on the actual new-tab page  -> it's an idle new tab, so
+//     re-create it in the container now (see onUpdated);
+//   - the tab makes a top-level navigation        -> reopen it in the container
+//     carrying that URL (see handleRequest).
+// tabId -> cookieStoreId
+const pendingInherit = new Map();
+const dropPendingInherit = (tabId) => pendingInherit.delete(tabId);
 
 const isBlankNewTab = (url) =>
   !url || /^about:(blank|newtab|home|privatebrowsing)$/i.test(url);
@@ -793,32 +785,40 @@ browser.tabs.onCreated.addListener((tab) => {
     settings.newTabInheritsContainer &&
     inheritFrom &&
     inheritFrom !== DEFAULT_STORE &&
+    tab.openerTabId == null &&
+    (tab.cookieStoreId || DEFAULT_STORE) === DEFAULT_STORE &&
+    !tab.incognito &&
     isBlankNewTab(tab.url)
   ) {
-    const timer = setTimeout(() => runInherit(tab.id), inheritGraceMs);
-    timer.unref?.();
-    inheritCandidates.set(tab.id, { inheritFrom, timer });
+    pendingInherit.set(tab.id, inheritFrom);
   }
   onTabSettled(tab.id);
 });
 
 browser.tabs.onUpdated.addListener(
   (tabId, changeInfo, tab) => {
-    if (!inheritCandidates.has(tabId)) return;
+    const inheritFrom = pendingInherit.get(tabId);
+    if (inheritFrom === undefined) return;
     const url = changeInfo.url ?? tab?.url ?? "";
-    if (changeInfo.url !== undefined && !isBlankNewTab(url)) {
-      dropInheritCandidate(tabId); // navigated somewhere real
+
+    if (changeInfo.status === "complete" && /^about:(newtab|home)$/i.test(url)) {
+      // Settled on the real new-tab page → a genuine idle new tab.
+      pendingInherit.delete(tabId);
+      serialize(() => maybeInheritContainer(tabId, inheritFrom));
     } else if (
-      changeInfo.status === "complete" &&
-      /^about:(newtab|home)$/i.test(url)
+      changeInfo.url !== undefined &&
+      !isBlankNewTab(url) &&
+      !/^https?:/i.test(url)
     ) {
-      runInherit(tabId); // settled on the new-tab page; no need to keep waiting
+      // Navigated somewhere we don't route (file:, data:, …) — stop tracking.
+      // An http(s) navigation is left for handleRequest, which keeps the URL.
+      pendingInherit.delete(tabId);
     }
   },
   { properties: ["status", "url"] }
 );
 
-browser.tabs.onRemoved.addListener((tabId) => dropInheritCandidate(tabId));
+browser.tabs.onRemoved.addListener((tabId) => dropPendingInherit(tabId));
 browser.tabs.onAttached.addListener((tabId) => onTabSettled(tabId));
 
 browser.contextualIdentities.onCreated.addListener(() =>
@@ -887,9 +887,6 @@ export {
 };
 export function __setSettleUntil(t) {
   settleUntil = t;
-}
-export function __setInheritGrace(ms) {
-  inheritGraceMs = ms;
 }
 /** Resolves when the current serialize() queue has drained. */
 export const settled = () => queue;
