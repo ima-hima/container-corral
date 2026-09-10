@@ -108,14 +108,18 @@ would empty Firefox's last remaining window.
 **New-tab container inheritance** (off by default)
 
 - `tabs.onActivated` keeps a `windowId → active cookieStoreId` map.
-- A new default-container tab is tracked, then classified from `tabs.onUpdated`:
-  if it commits an `http(s)` URL it navigated on its own — Firefox reports
-  `about:blank` at `onCreated` even for `tabs.create({url})` (e.g. 1Password's
-  "Open and Fill"), then navigates a beat later — and is left alone; if it
-  finishes loading still on a blank page it's a genuine new tab and is re-created
-  in the window's active container. A 10 s fallback stops tracking if no update
-  ever arrives.
-- Links are untouched (Firefox already opens them in their opener's container).
+- A new blank default-container tab is held for a ~900 ms grace period, then
+  re-created in the window's active container. Firefox reports `about:blank` at
+  `onCreated` even for a tab opened *for a URL* — `tabs.create({url})`
+  (1Password's "Open and Fill"), an external-app link, `window.open` — and
+  `about:blank` can even reach `status: "complete"` before that navigation
+  commits. So any real navigation cancels the pending inheritance: the blocking
+  `webRequest` listener drops it the instant a top-level request goes out, and
+  `tabs.onUpdated` drops it if the URL turns into anything non-blank. Settling on
+  `about:newtab` / `about:home` triggers the inheritance early instead of waiting
+  out the grace period.
+- Links from other Firefox tabs are untouched (Firefox already opens them in
+  their opener's container).
 
 **Tab right-click menu**
 

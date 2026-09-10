@@ -458,6 +458,11 @@ function wasJustRouted(url) {
 async function handleRequest(details) {
   if (details.tabId < 0 || details.frameId !== 0) return {};
 
+  // A pending-inheritance tab that makes a top-level request is navigating
+  // somewhere (external link, tabs.create({url}), window.open) — it's not an
+  // idle new tab, so don't re-open it blank in a container.
+  dropInheritCandidate(details.tabId);
+
   const rule = matchRule(details.url, rules);
   if (!rule) return {};
   if (wasJustRouted(details.url)) return {};
@@ -753,12 +758,32 @@ browser.tabs.onActivated.addListener(({ tabId, windowId }) => {
 });
 
 // New default-container tabs we might re-open in the active container. We hold
-// off until tabs.onUpdated tells us what the tab is actually doing: Firefox
-// reports about:blank at onCreated even for tabs.create({ url }) (e.g.
-// 1Password's "Open and Fill"), and re-creating such a tab would kill the
-// navigation before it starts. tabId -> inheritFrom.
+// off for a grace period first: Firefox reports about:blank at onCreated even
+// for tabs opened *for a URL* — tabs.create({ url }), an external-app link,
+// window.open — and about:blank itself can reach status "complete" before that
+// navigation commits. Re-creating the tab then would drop the URL. Any real
+// navigation (handleRequest / onUpdated) cancels the pending inheritance.
+// tabId -> { inheritFrom, timer }
 const inheritCandidates = new Map();
-const dropInheritCandidate = (tabId) => inheritCandidates.delete(tabId);
+let inheritGraceMs = 900;
+
+function dropInheritCandidate(tabId) {
+  const c = inheritCandidates.get(tabId);
+  if (!c) return;
+  clearTimeout(c.timer);
+  inheritCandidates.delete(tabId);
+}
+
+function runInherit(tabId) {
+  const c = inheritCandidates.get(tabId);
+  if (!c) return;
+  clearTimeout(c.timer);
+  inheritCandidates.delete(tabId);
+  serialize(() => maybeInheritContainer(tabId, c.inheritFrom));
+}
+
+const isBlankNewTab = (url) =>
+  !url || /^about:(blank|newtab|home|privatebrowsing)$/i.test(url);
 
 browser.tabs.onCreated.addListener((tab) => {
   // Capture the active container synchronously, before onActivated for this new
@@ -767,30 +792,27 @@ browser.tabs.onCreated.addListener((tab) => {
   if (
     settings.newTabInheritsContainer &&
     inheritFrom &&
-    inheritFrom !== DEFAULT_STORE
+    inheritFrom !== DEFAULT_STORE &&
+    isBlankNewTab(tab.url)
   ) {
-    inheritCandidates.set(tab.id, inheritFrom);
-    // Safety net if no onUpdated ever arrives for this tab.
-    setTimeout(() => dropInheritCandidate(tab.id), 10000).unref?.();
+    const timer = setTimeout(() => runInherit(tab.id), inheritGraceMs);
+    timer.unref?.();
+    inheritCandidates.set(tab.id, { inheritFrom, timer });
   }
   onTabSettled(tab.id);
 });
 
 browser.tabs.onUpdated.addListener(
   (tabId, changeInfo, tab) => {
-    const inheritFrom = inheritCandidates.get(tabId);
-    if (inheritFrom === undefined) return;
-
+    if (!inheritCandidates.has(tabId)) return;
     const url = changeInfo.url ?? tab?.url ?? "";
-    if (/^(https?|ftp|file):/i.test(url)) {
-      // It navigated on its own — not a blank tab the user opened. Leave it.
-      dropInheritCandidate(tabId);
-      return;
-    }
-    if (changeInfo.status === "complete") {
-      // Finished loading and still on a blank page → a genuine new tab.
-      dropInheritCandidate(tabId);
-      serialize(() => maybeInheritContainer(tabId, inheritFrom));
+    if (changeInfo.url !== undefined && !isBlankNewTab(url)) {
+      dropInheritCandidate(tabId); // navigated somewhere real
+    } else if (
+      changeInfo.status === "complete" &&
+      /^about:(newtab|home)$/i.test(url)
+    ) {
+      runInherit(tabId); // settled on the new-tab page; no need to keep waiting
     }
   },
   { properties: ["status", "url"] }
@@ -865,6 +887,9 @@ export {
 };
 export function __setSettleUntil(t) {
   settleUntil = t;
+}
+export function __setInheritGrace(ms) {
+  inheritGraceMs = ms;
 }
 /** Resolves when the current serialize() queue has drained. */
 export const settled = () => queue;

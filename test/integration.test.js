@@ -318,6 +318,65 @@ test("new-tab inheritance event flow: a tab that commits a URL is not touched", 
   assert.equal(still.cookieStoreId, "firefox-default");
 });
 
+test("new-tab inheritance: an external-link tab is not eaten (blank completes first)", async () => {
+  const h = await loadBackground({
+    containers: [WORK],
+    storageLocal: { settings: { newTabInheritsContainer: true } },
+  });
+  const cur = h.addTab({ windowId: 1, cookieStoreId: "c-work", active: true });
+  await h.bg.trackActive(1, cur.id);
+
+  const ext = h.addTab({
+    windowId: 1,
+    cookieStoreId: "firefox-default",
+    url: "about:blank",
+    active: true,
+  });
+  h.emit("tabs.onCreated", ext);
+  // about:blank reaches "complete" before the external URL commits (the old bug)
+  h.emit("tabs.onUpdated", ext.id, { status: "complete" }, {
+    ...ext,
+    url: "about:blank",
+  });
+  // then Firefox starts loading the clicked link
+  await h.bg.handleRequest({
+    tabId: ext.id,
+    frameId: 0,
+    url: "https://mail.example.com/message/42",
+  });
+  await h.bg.settled();
+
+  const still = h.state.tabs.find((x) => x.id === ext.id);
+  assert.ok(still, "the external-link tab survives");
+  assert.equal(still.cookieStoreId, "firefox-default");
+});
+
+test("new-tab inheritance: a tab that stays blank is inherited when the grace timer fires", async () => {
+  const h = await loadBackground({
+    containers: [WORK],
+    storageLocal: { settings: { newTabInheritsContainer: true } },
+  });
+  h.bg.__setInheritGrace(15);
+  const cur = h.addTab({ windowId: 1, cookieStoreId: "c-work", active: true });
+  await h.bg.trackActive(1, cur.id);
+
+  const blank = h.addTab({
+    windowId: 1,
+    cookieStoreId: "firefox-default",
+    url: "about:blank",
+    active: true,
+  });
+  h.emit("tabs.onCreated", blank);
+  await new Promise((r) => setTimeout(r, 40));
+  await h.bg.settled();
+
+  assert.ok(!h.state.tabs.some((x) => x.id === blank.id), "blank tab replaced");
+  assert.deepEqual(
+    h.state.tabs.map((x) => x.cookieStoreId).sort(),
+    ["c-work", "c-work"]
+  );
+});
+
 test("container rename propagates to the existing group", async () => {
   const h = await loadBackground({ containers: [WORK] });
   const t = h.addTab({ windowId: 1, cookieStoreId: "c-work" });
