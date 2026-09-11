@@ -265,6 +265,30 @@ async function createGroupInWindow(store, tabIds, windowId, desc) {
   return groupId;
 }
 
+/**
+ * The window a brand-new group for `tab` should be created in. With the
+ * `newGroupWindow: "new"` setting this pops the tab out into its own window
+ * first; a tab that's already alone in its window is left where it is (a new
+ * window would just churn). Returns the window id to group in.
+ */
+async function windowForNewGroup(tab) {
+  if (settings.newGroupWindow !== "new") return tab.windowId;
+
+  const siblings = await browser.tabs.query({ windowId: tab.windowId });
+  if (siblings.length <= 1) return tab.windowId;
+
+  try {
+    const win = await browser.windows.create({
+      tabId: tab.id,
+      focused: Boolean(tab.active),
+    });
+    return win.id;
+  } catch (err) {
+    console.error("[CTG] new window for group failed", err);
+    return tab.windowId;
+  }
+}
+
 async function placeTab(tabId) {
   let tab;
   try {
@@ -300,7 +324,8 @@ async function placeTab(tabId) {
   const target = await findContainerGroup(store, desc, winIds);
 
   if (target == null) {
-    await createGroupInWindow(store, [tabId], tab.windowId, desc);
+    const windowId = await windowForNewGroup(tab);
+    await createGroupInWindow(store, [tabId], windowId, desc);
     return;
   }
 

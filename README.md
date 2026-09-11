@@ -71,8 +71,13 @@ above. This toggle has no effect on release or Beta Firefox.
   duplicates are merged into it immediately, cross-window duplicates are drained
   by the next reconcile.
 - On tab create / attach, the tab is moved to the canonical group's window (via
-  `tabs.move()`) and added to the group (`tabs.group()`), creating the group if
-  none exists. A tab already sitting in a correctly-named group is left in place.
+  `tabs.move()`) and added to the group (`tabs.group()`). A tab already sitting
+  in a correctly-named group is left in place.
+- When no group for that container exists yet, one is created. By default the
+  tab is first popped out into its **own new window** (`windows.create`); the
+  options page can switch this to the current window. A tab that's already alone
+  in its window stays where it is either way. (Bulk reconcile always creates in
+  the window that already holds the most of that container's tabs.)
 - If the moved tab was the active one in its old window, focus follows it: the
   destination window is raised (`windows.update({focused:true})`) and the tab is
   selected there. Bulk reconciles never steal focus.

@@ -342,7 +342,10 @@ test("last window is never emptied by consolidation", async () => {
 });
 
 test("two containers get two independent groups", async () => {
-  const h = await loadBackground({ containers: [WORK, SHOP] });
+  const h = await loadBackground({
+    containers: [WORK, SHOP],
+    storageLocal: { settings: { newGroupWindow: "current" } },
+  });
   const a = h.addTab({ windowId: 1, cookieStoreId: "c-work" });
   const b = h.addTab({ windowId: 1, cookieStoreId: "c-shop" });
   await h.bg.placeTab(a.id);
@@ -351,4 +354,42 @@ test("two containers get two independent groups", async () => {
   const groups = h.snapshotGroups();
   assert.equal(groups.length, 2);
   assert.deepEqual(groups.map((g) => g.title).sort(), ["Shopping", "Work"]);
+});
+
+test("newGroupWindow: a brand-new group opens in a new window by default", async () => {
+  const h = await loadBackground({ containers: [WORK] });
+  h.addTab({ windowId: 1, cookieStoreId: "firefox-default" }); // a sibling
+  const t = h.addTab({ windowId: 1, cookieStoreId: "c-work" });
+
+  await h.bg.placeTab(t.id);
+
+  const moved = h.snapshotTabs().find((x) => x.id === t.id);
+  assert.notEqual(moved.w, 1, "tab popped out to a new window");
+  const groups = h.snapshotGroups();
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].w, moved.w, "group is in the new window");
+});
+
+test("newGroupWindow 'current': a brand-new group stays put", async () => {
+  const h = await loadBackground({
+    containers: [WORK],
+    storageLocal: { settings: { newGroupWindow: "current" } },
+  });
+  h.addTab({ windowId: 1, cookieStoreId: "firefox-default" });
+  const t = h.addTab({ windowId: 1, cookieStoreId: "c-work" });
+
+  await h.bg.placeTab(t.id);
+
+  assert.equal(h.snapshotTabs().find((x) => x.id === t.id).w, 1);
+  assert.equal(h.snapshotGroups()[0].w, 1);
+});
+
+test("newGroupWindow: a tab alone in its window is not moved", async () => {
+  const h = await loadBackground({ containers: [WORK] });
+  const t = h.addTab({ windowId: 1, cookieStoreId: "c-work" }); // the only tab
+
+  await h.bg.placeTab(t.id);
+
+  assert.equal(h.snapshotTabs().find((x) => x.id === t.id).w, 1);
+  assert.equal(h.snapshotGroups()[0].w, 1);
 });
