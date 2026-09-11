@@ -538,6 +538,10 @@ async function containerEntries() {
   ];
 }
 
+// Shown next to each top-level entry so the menu is recognizably ours; not on
+// the per-container radio children, which already carry their own checkmark.
+const MENU_ICONS = { 16: "icons/icon-16.png", 32: "icons/icon-32.png" };
+
 async function buildMenus() {
   await browser.menus.removeAll();
 
@@ -545,6 +549,7 @@ async function buildMenus() {
     id: MENU_ASSIGN,
     title: "Always open this site in…",
     contexts: ["tab"],
+    icons: MENU_ICONS,
   });
   for (const e of await containerEntries()) {
     browser.menus.create({
@@ -562,6 +567,7 @@ async function buildMenus() {
     title: "Stop opening this site in a container",
     contexts: ["tab"],
     visible: false,
+    icons: MENU_ICONS,
   });
 
   browser.menus.create({
@@ -574,11 +580,13 @@ async function buildMenus() {
     title: "Reopen tab without a container",
     contexts: ["tab"],
     visible: false,
+    icons: MENU_ICONS,
   });
   browser.menus.create({
     id: MENU_REGROUP,
     title: "Move tab to its container’s group",
     contexts: ["tab"],
+    icons: MENU_ICONS,
   });
 }
 
