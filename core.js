@@ -6,7 +6,7 @@
 export const DEFAULT_SETTINGS = {
   // Also group tabs that have no container (the "firefox-default" store).
   groupDefaultContainer: false,
-  // Keep each group's title and colour matched to its container.
+  // Keep each group's title and color matched to its container.
   syncTitleAndColor: true,
   // Where a tab lands when added to its group: "rightmost" or "leftmost".
   newTabPosition: "rightmost",
@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS = {
   newGroupWindow: "new",
 };
 
-// contextualIdentities colours -> tabGroups.Color values
+// contextualIdentities colors -> tabGroups.Color values
 export const COLOR_MAP = {
   blue: "blue",
   turquoise: "cyan",
@@ -90,7 +90,7 @@ export function matchRule(url, rules) {
   return null;
 }
 
-/** Target group title/colour for a cookieStoreId, or null to skip. */
+/** Target group title/color for a cookieStoreId, or null to skip. */
 export function describe(cookieStoreId, containers) {
   if (cookieStoreId === DEFAULT_STORE) {
     return { title: DEFAULT_GROUP_TITLE, color: DEFAULT_GROUP_COLOR };

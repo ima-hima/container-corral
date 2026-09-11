@@ -28,7 +28,7 @@ test("hostOf only returns a host for http(s)", () => {
   assert.equal(hostOf("not a url"), null);
 });
 
-test("globToRegExp anchors and honours wildcards", () => {
+test("globToRegExp anchors and honors wildcards", () => {
   assert.ok(globToRegExp("https://*.example.com/*").test("https://a.example.com/x"));
   assert.ok(!globToRegExp("https://*.example.com/*").test("https://example.com/x"));
   assert.ok(globToRegExp("*example*").test("https://EXAMPLE.org"));
