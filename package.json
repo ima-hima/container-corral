@@ -1,7 +1,7 @@
 {
   "name": "container-corral",
-  "version": "0.9.4",
-  "description": "Group tabs by their Multi-Account Container into native tab groups, and open chosen sites in a chosen container.",
+  "version": "0.10.0",
+  "description": "Group tabs by their Multi-Account Container into native tab groups.",
   "private": true,
   "type": "module",
   "scripts": {

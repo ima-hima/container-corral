@@ -117,67 +117,6 @@ test("newTabPosition: leftmost vs rightmost placement in the group", async () =>
   }
 });
 
-test("site routing reopens a matching tab in the target container", async () => {
-  const h = await loadBackground({
-    containers: [WORK],
-    storageLocal: {
-      containerRules: [
-        {
-          id: "r1",
-          pattern: "example.com",
-          matchType: "domain",
-          cookieStoreId: "c-work",
-          enabled: true,
-        },
-      ],
-    },
-  });
-  const t = h.addTab({
-    windowId: 1,
-    cookieStoreId: "firefox-default",
-    url: "about:blank",
-  });
-
-  const res = await h.bg.handleRequest({
-    tabId: t.id,
-    frameId: 0,
-    url: "https://www.example.com/page",
-  });
-
-  assert.deepEqual(res, { cancel: true });
-  const tabs = h.state.tabs;
-  assert.equal(tabs.length, 1, "old tab replaced");
-  assert.equal(tabs[0].cookieStoreId, "c-work");
-  assert.equal(tabs[0].url, "https://www.example.com/page");
-
-  // loop guard: the freshly-created tab must not be reopened again
-  const again = await h.bg.handleRequest({
-    tabId: tabs[0].id,
-    frameId: 0,
-    url: "https://www.example.com/page",
-  });
-  assert.deepEqual(again, {});
-});
-
-test("site routing leaves a tab already in the right container alone", async () => {
-  const h = await loadBackground({
-    containers: [WORK],
-    storageLocal: {
-      containerRules: [
-        { id: "r1", pattern: "example.com", matchType: "domain", cookieStoreId: "c-work", enabled: true },
-      ],
-    },
-  });
-  const t = h.addTab({ windowId: 1, cookieStoreId: "c-work", url: "about:blank" });
-  const res = await h.bg.handleRequest({
-    tabId: t.id,
-    frameId: 0,
-    url: "https://example.com/",
-  });
-  assert.deepEqual(res, {});
-  assert.equal(h.state.tabs.length, 1);
-});
-
 test("reopenInContainer moves a container tab back to no container", async () => {
   const h = await loadBackground({ containers: [WORK] });
   const t = h.addTab({
@@ -320,43 +259,6 @@ test("new-tab inheritance: a pending tab that navigates is reopened in the conta
   assert.equal(reopened.cookieStoreId, "c-work");
   assert.equal(reopened.url, "https://mail.example.com/message/42");
   assert.ok(!h.state.tabs.some((x) => x.id === t.id), "original blank tab closed");
-});
-
-test("new-tab inheritance: a matching site rule wins over the inherited container", async () => {
-  const h = await loadBackground({
-    containers: [WORK, SHOP],
-    storageLocal: {
-      settings: { newTabInheritsContainer: true },
-      containerRules: [
-        {
-          id: "r1",
-          pattern: "shop.example.com",
-          matchType: "domain",
-          cookieStoreId: "c-shop",
-          enabled: true,
-        },
-      ],
-    },
-  });
-  const cur = h.addTab({ windowId: 1, cookieStoreId: "c-work", active: true });
-  await h.bg.trackActive(1, cur.id);
-  const t = h.addTab({
-    windowId: 1,
-    cookieStoreId: "firefox-default",
-    url: "about:blank",
-    active: true,
-  });
-  h.emit("tabs.onCreated", t);
-
-  await h.bg.handleRequest({
-    tabId: t.id,
-    frameId: 0,
-    url: "https://shop.example.com/cart",
-  });
-  await h.bg.settled();
-
-  const reopened = h.state.tabs.find((x) => x.id !== cur.id);
-  assert.equal(reopened.cookieStoreId, "c-shop", "rule container, not inherited");
 });
 
 test("new-tab inheritance: a blank tab left idle stays put until it navigates", async () => {

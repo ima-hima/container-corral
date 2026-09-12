@@ -1,6 +1,6 @@
 /**
  * A small in-memory fake of the slice of the WebExtension API that
- * background.js uses. Faithful enough for the grouping / routing / new-tab
+ * background.js uses. Faithful enough for the grouping / new-tab inheritance
  * logic: tabs carry a per-window `index`, `tabs.group()` makes a group's
  * members contiguous, moving a tab to another window drops it from its group,
  * and groups with no members disappear (as Firefox does).

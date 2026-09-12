@@ -9,12 +9,15 @@ Firefox's native tab groups (Firefox 140+):
    container. 
 1. Because a tab group can't span windows, a tab is moved to the
    window that already holds its container's group. This prevents there being multiple groups with the same name in different windows, and keeps all tabs in a container together. 
-2. **Open sites in a container.** A list of `site → container` rules. When you
-   open a matching site, the tab is reopened in the chosen container (and so
-   lands in that container's group). Rules can be added from the options page or
-   straight from the tab's right-click menu.
-3. **Inherit the container for new tabs** (optional). A blank new tab opens in the
+2. **Inherit the container for new tabs** (optional). A blank new tab opens in the
    same container as the current tab.
+
+Container Corral doesn't have its own "open this site in that container" rule
+list — use Multi-Account Containers' own **Always Open in This Container**
+per-site assignment for that. (An earlier version of Container Corral had its
+own copy of this feature; it was removed because two extensions independently
+reopening the same navigation into a container can race or fight each other,
+and there's no way for either one to see the other's assignments.)
 
 ## Install
 
@@ -95,16 +98,6 @@ above. This toggle has no effect on release or Beta Firefox.
 The only time a tab *isn't* pulled into its container's window is when that
 would empty Firefox's last remaining window.
 
-**Site routing**
-
-- A blocking `webRequest.onBeforeRequest` listener watches top-level
-  (`main_frame`) navigations.
-- If the URL matches a rule and the tab isn't already in the rule's container,
-  the tab is reopened via `tabs.create({ cookieStoreId })` and the old one is
-  closed. A short-lived per-URL guard prevents reopen loops.
-- Matching an already-correct container is left alone; **any other** container
-  is moved to the assigned one.
-
 **New-tab container inheritance** (off by default)
 
 - `tabs.onActivated` keeps a `windowId → active cookieStoreId` map.
@@ -114,10 +107,9 @@ would empty Firefox's last remaining window.
   then would drop the URL. Instead the extension waits for one of two signals:
   - the tab settles on `about:newtab` / `about:home` → it's a genuine idle new
     tab, so it's re-created in the active container now (`tabs.onUpdated`);
-  - the tab makes a top-level navigation → the blocking `webRequest` listener
-    reopens it in the active container **carrying that URL** — the same
-    mechanism as a site rule, so nothing is lost. A matching site rule wins over
-    the inherited container.
+  - the tab makes a top-level navigation → a blocking `webRequest.onBeforeRequest`
+    listener reopens it in the active container **carrying that URL**, so
+    nothing is lost.
 - A blank tab you open and never navigate stays in no container. If your new-tab
   page is set to a blank page (not Firefox Home), a fresh `Ctrl+T` tab isn't
   moved into the container until you navigate it somewhere.
@@ -126,30 +118,16 @@ would empty Firefox's last remaining window.
 
 **Tab right-click menu**
 
-- *Always open "&lt;host&gt;" in ▸* — submenu of every container (plus "No
-  container"); picking one adds a domain rule for the tab's host and reopens the
-  tab there. The tab's current container is marked.
-- *Stop opening "&lt;host&gt;" in a container* — shown only when a domain rule
-  for that host exists; removes it.
 - *Reopen tab without a container* — shown only when the tab is in a container;
-  reopens it in no container right now, without adding a rule.
+  reopens it in no container right now.
 - *Move tab to its container's group* — re-runs the grouper for that one tab
   (useful after you've dragged a tab out of its group).
-
-**Match types (options page)**
-
-
-| Type | Matches |
-|---|---|
-| Domain + subdomains | `example.com` also matches `www.example.com`, `a.b.example.com` |
-| Exact host | only the exact hostname |
-| URL glob | `*` wildcards against the full URL, e.g. `https://*.example.com/app/*` |
 
 ## Permissions
 
 `tabs`, `tabGroups`, `contextualIdentities`, `cookies`, `storage`, `menus`,
 `webRequest`, `webRequestBlocking`, and `<all_urls>` host access (needed to see
-and redirect navigations for the routing feature).
+navigations for the new-tab inheritance feature).
 
 ## Limitations & known edge cases
 
@@ -163,9 +141,9 @@ and redirect navigations for the routing feature).
 - A container renamed while the background page is cold *and* has no cached
   mapping yet may keep its old group name until the next reconcile touches it.
 - "No Container" grouping is opt-in via the options page.
-- Site routing reopens the tab, so it loses forward/back history for that
-  navigation (same tradeoff as Mozilla's Multi-Account Containers).
-- Deleting a container removes any rules that pointed at it.
+- Reopening a tab into a different container (new-tab inheritance, or the
+  right-click "Reopen tab without a container") loses that tab's forward/back
+  history — the same tradeoff as Mozilla's Multi-Account Containers.
 
 ## Development
 
@@ -186,10 +164,10 @@ See [Install](#install) for loading it into your everyday Firefox.
 |---|---|
 | `core.js` | pure decision logic — no `browser` API, no mutable state |
 | `background.js` | ES-module background: state, `browser` calls, event wiring |
-| `options.html` / `options.js` | preferences + rule table |
+| `options.html` / `options.js` | preferences page |
 | `test/core.test.js` | unit tests for `core.js` |
 | `test/fake-browser.js` | in-memory fake of the WebExtension surface used here |
-| `test/integration.test.js` | drives `background.js` against the fake (grouping, consolidation, routing, inheritance, rename) |
+| `test/integration.test.js` | drives `background.js` against the fake (grouping, consolidation, inheritance, rename) |
 
 Tests import `background.js` with a cache-busting query string so each test gets
 a fresh module instance and a fresh fake browser. CI (`.github/workflows/ci.yml`)

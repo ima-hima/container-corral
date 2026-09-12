@@ -42,54 +42,6 @@ export const BLANK_URLS = new Set([
 
 export const normTitle = (s) => (s || "").trim().toLowerCase();
 
-/** hostname for http(s) URLs, else null. */
-export function hostOf(url) {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    return u.hostname;
-  } catch {
-    return null;
-  }
-}
-
-export function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function globToRegExp(glob) {
-  const body = glob.split("*").map(escapeRegExp).join(".*");
-  return new RegExp("^" + body + "$", "i");
-}
-
-export function hostMatches(host, rule) {
-  const p = rule.pattern.trim().toLowerCase().replace(/^\*\./, "");
-  const h = host.toLowerCase();
-  if (rule.matchType === "exact") return h === p;
-  return h === p || h.endsWith("." + p); // "domain": host + subdomains
-}
-
-/** First enabled rule in `rules` that matches `url`, or null. */
-export function matchRule(url, rules) {
-  let u;
-  try {
-    u = new URL(url);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-
-  for (const rule of rules) {
-    if (rule.enabled === false || !rule.pattern) continue;
-    if (rule.matchType === "glob") {
-      if (globToRegExp(rule.pattern).test(url)) return rule;
-    } else if (hostMatches(u.hostname, rule)) {
-      return rule;
-    }
-  }
-  return null;
-}
-
 /** Target group title/colour for a cookieStoreId, or null to skip. */
 export function describe(cookieStoreId, containers) {
   if (cookieStoreId === DEFAULT_STORE) {
