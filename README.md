@@ -163,8 +163,16 @@ and redirect navigations for the routing feature).
 - A container renamed while the background page is cold *and* has no cached
   mapping yet may keep its old group name until the next reconcile touches it.
 - "No Container" grouping is opt-in via the options page.
-- Site routing reopens the tab, so it loses forward/back history for that
-  navigation (same tradeoff as Mozilla's Multi-Account Containers).
+- **Reopening a tab in a different container drops its back/forward history**
+  (site routing, new-tab inheritance, and the right-click "Always open in…" all
+  reopen the tab). This is a Firefox platform limit, not something this
+  extension can work around: a tab's history belongs to its cookie store, and
+  there's no WebExtension API to carry it to a new one — only to close the tab
+  and open a fresh one at the target URL. Mozilla's own Multi-Account
+  Containers has the same tradeoff. (We could preload the referring page first
+  so Back goes one step, but that means a visible flash of that page loading
+  under the new container's cookies — not worth it for one step of history, so
+  we left it out.)
 - Deleting a container removes any rules that pointed at it.
 
 ## Development
