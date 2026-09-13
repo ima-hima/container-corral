@@ -171,7 +171,7 @@ async function findContainerGroup(store, desc, winIds) {
     }
   }
 
-  // 2. Otherwise match by (normalised) title across every normal window.
+  // 2. Otherwise match by (normalized) title across every normal window.
   const key = normTitle(desc.title);
   if (!key) return null;
 
@@ -204,7 +204,7 @@ async function findContainerGroup(store, desc, winIds) {
   return { groupId: canonical.id, windowId: canonical.windowId };
 }
 
-/** Name/colour a group. `force` names even when the sync setting is off. */
+/** Name/color a group. `force` names even when the sync setting is off. */
 async function setGroupMeta(groupId, desc, force = false) {
   if (!force && !settings.syncTitleAndColor) return;
   try {
@@ -413,7 +413,7 @@ async function reconcileAll() {
   }
 }
 
-/** Re-apply titles/colours after a container is renamed or recoloured. */
+/** Re-apply titles/colors after a container is renamed or recolored. */
 async function syncAllGroupMeta() {
   if (!settings.syncTitleAndColor) return;
   const containers = await getContainers();
