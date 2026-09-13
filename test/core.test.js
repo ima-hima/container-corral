@@ -3,10 +3,6 @@ import assert from "node:assert/strict";
 
 import {
   normTitle,
-  hostOf,
-  globToRegExp,
-  hostMatches,
-  matchRule,
   describe as describeStore,
   eligible,
   homeWindowFor,
@@ -18,48 +14,6 @@ import {
 test("normTitle trims and lowercases", () => {
   assert.equal(normTitle("  Work  "), "work");
   assert.equal(normTitle(undefined), "");
-});
-
-test("hostOf only returns a host for http(s)", () => {
-  assert.equal(hostOf("https://sub.example.com/x?y"), "sub.example.com");
-  assert.equal(hostOf("http://example.com"), "example.com");
-  assert.equal(hostOf("about:newtab"), null);
-  assert.equal(hostOf("file:///tmp/x"), null);
-  assert.equal(hostOf("not a url"), null);
-});
-
-test("globToRegExp anchors and honors wildcards", () => {
-  assert.ok(globToRegExp("https://*.example.com/*").test("https://a.example.com/x"));
-  assert.ok(!globToRegExp("https://*.example.com/*").test("https://example.com/x"));
-  assert.ok(globToRegExp("*example*").test("https://EXAMPLE.org"));
-});
-
-test("hostMatches: domain covers subdomains, exact does not", () => {
-  const domain = { pattern: "example.com", matchType: "domain" };
-  assert.ok(hostMatches("example.com", domain));
-  assert.ok(hostMatches("www.example.com", domain));
-  assert.ok(!hostMatches("notexample.com", domain));
-
-  const exact = { pattern: "example.com", matchType: "exact" };
-  assert.ok(hostMatches("example.com", exact));
-  assert.ok(!hostMatches("www.example.com", exact));
-
-  assert.ok(hostMatches("a.example.com", { pattern: "*.example.com", matchType: "domain" }));
-});
-
-test("matchRule: first enabled match wins, disabled skipped, non-http ignored", () => {
-  const rules = [
-    { pattern: "off.com", matchType: "domain", cookieStoreId: "c1", enabled: false },
-    { pattern: "example.com", matchType: "domain", cookieStoreId: "c2", enabled: true },
-    { pattern: "example.com", matchType: "domain", cookieStoreId: "c3", enabled: true },
-  ];
-  assert.equal(matchRule("https://www.example.com/a", rules).cookieStoreId, "c2");
-  assert.equal(matchRule("https://off.com", rules), null);
-  assert.equal(matchRule("about:config", rules), null);
-
-  const glob = [{ pattern: "https://x.com/app/*", matchType: "glob", cookieStoreId: "c9", enabled: true }];
-  assert.equal(matchRule("https://x.com/app/settings", glob).cookieStoreId, "c9");
-  assert.equal(matchRule("https://x.com/home", glob), null);
 });
 
 test("describe: default store, known and unknown containers", () => {

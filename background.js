@@ -2,16 +2,16 @@
  * Container Corral
  * ================
  *
- * Two features, both built on Firefox's native tab groups + containers:
+ * Built on Firefox's native tab groups + containers:
  *
- *  1. Grouping     - keeps one native tab group per container, across all
- *                    windows. Because tab groups cannot span windows, a tab is
- *                    moved to the window that holds its container's group; if
- *                    that tab was the active one, focus follows it there.
+ *  1. Grouping            - keeps one native tab group per container, across
+ *                           all windows. Because tab groups cannot span
+ *                           windows, a tab is moved to the window that holds
+ *                           its container's group; if that tab was the active
+ *                           one, focus follows it there.
  *
- *  2. Site routing - a list of "open this site in that container" rules. When a
- *                    top-level navigation matches a rule and the tab is in the
- *                    wrong container, the tab is reopened in the right one.
+ *  2. New-tab inheritance - a blank new tab opens in the current tab's
+ *                           container.
  *
  * Pure decision logic lives in core.js so it can be unit-tested without a
  * browser; this file is the wiring around it.
@@ -24,8 +24,6 @@ import {
   DEFAULT_GROUP_TITLE,
   DEFAULT_GROUP_COLOR,
   normTitle,
-  hostOf,
-  matchRule,
   describe,
   eligible as isEligible,
   homeWindowFor,
@@ -430,16 +428,8 @@ async function syncAllGroupMeta() {
 }
 
 /* ================================================================== *
- * Feature 2: site -> container routing
+ * Feature 2: reopening a pending-inherit tab into its container
  * ================================================================== */
-
-// [{ id, pattern, matchType: "domain"|"exact"|"glob", cookieStoreId, enabled }]
-let rules = [];
-
-async function loadRules() {
-  const stored = await browser.storage.local.get("containerRules");
-  rules = Array.isArray(stored.containerRules) ? stored.containerRules : [];
-}
 
 // Guard against re-handling the tab we just opened for a given navigation.
 const recentlyRouted = new Map(); // url -> timestamp
@@ -461,11 +451,8 @@ async function handleRequest(details) {
 
   // A blank new tab that was waiting to inherit a container is now navigating
   // somewhere — send it into that container *carrying this URL* (an external
-  // link, tabs.create({url}), etc.). A matching site rule wins over inheritance.
-  const rule = matchRule(details.url, rules);
-  const targetStore = rule
-    ? rule.cookieStoreId
-    : pendingInherit.get(details.tabId);
+  // link, tabs.create({url}), etc.).
+  const targetStore = pendingInherit.get(details.tabId);
   if (!targetStore) return {};
 
   pendingInherit.delete(details.tabId);
@@ -488,7 +475,7 @@ browser.webRequest.onBeforeRequest.addListener(
 );
 
 /* ================================================================== *
- * Settings + rules storage
+ * Settings storage
  * ================================================================== */
 
 async function loadSettings() {
@@ -502,79 +489,21 @@ browser.storage.onChanged.addListener((changes, area) => {
     settings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
     serialize(reconcileAll);
   }
-  if (changes.containerRules) {
-    rules = Array.isArray(changes.containerRules.newValue)
-      ? changes.containerRules.newValue
-      : [];
-  }
 });
-
-async function persistRules(next) {
-  rules = next;
-  await browser.storage.local.set({ containerRules: rules });
-}
 
 /* ================================================================== *
  * Feature 3: tab context menu
  * ================================================================== */
 
-const MENU_ASSIGN = "ctg-assign";
-const MENU_UNASSIGN = "ctg-unassign";
 const MENU_DECONTAIN = "ctg-decontain";
 const MENU_REGROUP = "ctg-regroup";
 
-function domainRuleFor(host) {
-  const lower = host.toLowerCase();
-  return rules.find(
-    (r) => r.matchType === "domain" && r.pattern.trim().toLowerCase() === lower
-  );
-}
-
-async function containerEntries() {
-  const list = await browser.contextualIdentities.query({});
-  return [
-    { cookieStoreId: DEFAULT_STORE, name: "No container" },
-    ...list.map((c) => ({ cookieStoreId: c.cookieStoreId, name: c.name })),
-  ];
-}
-
-// Shown next to each top-level entry so the menu is recognizably ours; not on
-// the per-container radio children, which already carry their own checkmark.
+// Shown next to each top-level entry so the menu is recognizably ours.
 const MENU_ICONS = { 16: "icons/icon-16.png", 32: "icons/icon-32.png" };
 
 async function buildMenus() {
   await browser.menus.removeAll();
 
-  browser.menus.create({
-    id: MENU_ASSIGN,
-    title: "Always open this site in…",
-    contexts: ["tab"],
-    icons: MENU_ICONS,
-  });
-  for (const e of await containerEntries()) {
-    browser.menus.create({
-      id: `${MENU_ASSIGN}:${e.cookieStoreId}`,
-      parentId: MENU_ASSIGN,
-      title: e.name,
-      type: "radio",
-      checked: false,
-      contexts: ["tab"],
-    });
-  }
-
-  browser.menus.create({
-    id: MENU_UNASSIGN,
-    title: "Stop opening this site in a container",
-    contexts: ["tab"],
-    visible: false,
-    icons: MENU_ICONS,
-  });
-
-  browser.menus.create({
-    id: "ctg-sep",
-    type: "separator",
-    contexts: ["tab"],
-  });
   browser.menus.create({
     id: MENU_DECONTAIN,
     title: "Reopen tab without a container",
@@ -593,28 +522,9 @@ async function buildMenus() {
 browser.menus.onShown.addListener(async (info, tab) => {
   if (!info.contexts.includes("tab") || !tab) return;
 
-  const host = hostOf(tab.url);
   const store = tab.cookieStoreId || DEFAULT_STORE;
 
   try {
-    await browser.menus.update(MENU_ASSIGN, {
-      enabled: Boolean(host),
-      title: host ? `Always open “${host}” in…` : "Always open this site in…",
-    });
-
-    for (const e of await containerEntries()) {
-      await browser.menus.update(`${MENU_ASSIGN}:${e.cookieStoreId}`, {
-        checked: e.cookieStoreId === store,
-      });
-    }
-
-    await browser.menus.update(MENU_UNASSIGN, {
-      visible: Boolean(host && domainRuleFor(host)),
-      title: host
-        ? `Stop opening “${host}” in a container`
-        : "Stop opening this site in a container",
-    });
-
     await browser.menus.update(MENU_DECONTAIN, {
       visible: store !== DEFAULT_STORE && !store.startsWith("firefox-private"),
     });
@@ -639,33 +549,6 @@ browser.menus.onClicked.addListener((info, tab) => {
   if (id === MENU_DECONTAIN) {
     serialize(() => reopenInContainer(tab, DEFAULT_STORE));
     return;
-  }
-
-  const host = hostOf(tab.url);
-  if (!host) return;
-
-  if (id === MENU_UNASSIGN) {
-    serialize(() =>
-      persistRules(rules.filter((r) => r !== domainRuleFor(host)))
-    );
-    return;
-  }
-
-  if (typeof id === "string" && id.startsWith(`${MENU_ASSIGN}:`)) {
-    const cookieStoreId = id.slice(MENU_ASSIGN.length + 1);
-    serialize(async () => {
-      const existing = domainRuleFor(host);
-      const next = rules.filter((r) => r !== existing);
-      next.push({
-        id: crypto.randomUUID(),
-        pattern: host,
-        matchType: "domain",
-        cookieStoreId,
-        enabled: true,
-      });
-      await persistRules(next);
-      await reopenInContainer(tab, cookieStoreId);
-    });
   }
 });
 
@@ -840,12 +723,7 @@ browser.contextualIdentities.onUpdated.addListener(() =>
 );
 browser.contextualIdentities.onRemoved.addListener((info) =>
   serialize(async () => {
-    const csid = info.contextualIdentity.cookieStoreId;
-    await forgetGroup(csid);
-    const kept = rules.filter((r) => r.cookieStoreId !== csid);
-    if (kept.length !== rules.length) {
-      await persistRules(kept);
-    }
+    await forgetGroup(info.contextualIdentity.cookieStoreId);
     await buildMenus();
     await reconcileAll();
   })
@@ -864,7 +742,7 @@ browser.tabGroups.onRemoved.addListener((group) =>
  * ================================================================== */
 
 const ready = serialize(async () => {
-  await Promise.all([loadSettings(), loadRules(), loadGroupMap()]);
+  await Promise.all([loadSettings(), loadGroupMap()]);
   await buildMenus();
   for (const t of await browser.tabs.query({ active: true })) {
     activeStore.set(t.windowId, t.cookieStoreId || DEFAULT_STORE);
