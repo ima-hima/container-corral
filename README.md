@@ -87,8 +87,8 @@ above. This toggle has no effect on release or Beta Firefox.
 - A tab added to a group is slid to the **rightmost** end of that group by
   default; the options page can switch this to leftmost. Existing tabs already
   in the group aren't reordered.
-- Group title/colour are synced from the container (`tabGroups.update()`) and
-  re-synced when a container is renamed or recoloured.
+- Group title/color are synced from the container (`tabGroups.update()`) and
+  re-synced when a container is renamed or recolored.
 - On startup / install / container add·remove / settings change, everything is
   reconciled: tabs are gathered from every window into one group per container.
 - During session restore, per-tab handling is paused for ~12 s (with a few
@@ -141,9 +141,16 @@ navigations for the new-tab inheritance feature).
 - A container renamed while the background page is cold *and* has no cached
   mapping yet may keep its old group name until the next reconcile touches it.
 - "No Container" grouping is opt-in via the options page.
-- Reopening a tab into a different container (new-tab inheritance, or the
-  right-click "Reopen tab without a container") loses that tab's forward/back
-  history — the same tradeoff as Mozilla's Multi-Account Containers.
+- **Reopening a tab into a different container drops its back/forward
+  history** (new-tab inheritance, and the right-click "Reopen tab without a
+  container", both reopen the tab). This is a Firefox platform limit, not
+  something this extension can work around: a tab's history belongs to its
+  cookie store, and there's no WebExtension API to carry it to a new one —
+  only to close the tab and open a fresh one at the target URL. Mozilla's own
+  Multi-Account Containers has the same tradeoff. (We could preload the
+  referring page first so Back goes one step, but that means a visible flash
+  of that page loading under the new container's cookies — not worth it for
+  one step of history, so we left it out.)
 
 ## Development
 

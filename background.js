@@ -169,7 +169,7 @@ async function findContainerGroup(store, desc, winIds) {
     }
   }
 
-  // 2. Otherwise match by (normalised) title across every normal window.
+  // 2. Otherwise match by (normalized) title across every normal window.
   const key = normTitle(desc.title);
   if (!key) return null;
 
@@ -202,7 +202,7 @@ async function findContainerGroup(store, desc, winIds) {
   return { groupId: canonical.id, windowId: canonical.windowId };
 }
 
-/** Name/colour a group. `force` names even when the sync setting is off. */
+/** Name/color a group. `force` names even when the sync setting is off. */
 async function setGroupMeta(groupId, desc, force = false) {
   if (!force && !settings.syncTitleAndColor) return;
   try {
@@ -411,7 +411,7 @@ async function reconcileAll() {
   }
 }
 
-/** Re-apply titles/colours after a container is renamed or recoloured. */
+/** Re-apply titles/colors after a container is renamed or recolored. */
 async function syncAllGroupMeta() {
   if (!settings.syncTitleAndColor) return;
   const containers = await getContainers();
@@ -498,6 +498,9 @@ browser.storage.onChanged.addListener((changes, area) => {
 const MENU_DECONTAIN = "ctg-decontain";
 const MENU_REGROUP = "ctg-regroup";
 
+// Shown next to each top-level entry so the menu is recognizably ours.
+const MENU_ICONS = { 16: "icons/icon-16.png", 32: "icons/icon-32.png" };
+
 async function buildMenus() {
   await browser.menus.removeAll();
 
@@ -506,11 +509,13 @@ async function buildMenus() {
     title: "Reopen tab without a container",
     contexts: ["tab"],
     visible: false,
+    icons: MENU_ICONS,
   });
   browser.menus.create({
     id: MENU_REGROUP,
     title: "Move tab to its container’s group",
     contexts: ["tab"],
+    icons: MENU_ICONS,
   });
 }
 
