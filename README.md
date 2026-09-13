@@ -84,8 +84,8 @@ above. This toggle has no effect on release or Beta Firefox.
 - A tab added to a group is slid to the **rightmost** end of that group by
   default; the options page can switch this to leftmost. Existing tabs already
   in the group aren't reordered.
-- Group title/colour are synced from the container (`tabGroups.update()`) and
-  re-synced when a container is renamed or recoloured.
+- Group title/color are synced from the container (`tabGroups.update()`) and
+  re-synced when a container is renamed or recolored.
 - On startup / install / container add·remove / settings change, everything is
   reconciled: tabs are gathered from every window into one group per container.
 - During session restore, per-tab handling is paused for ~12 s (with a few
