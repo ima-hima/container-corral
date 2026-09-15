@@ -595,14 +595,16 @@ async function maybeInheritContainer(tabId, inheritFrom) {
     return;
   }
 
-  const keepUrl = /^about:(newtab|home)$/i.test(newTab.url || "");
   try {
+    // No `url`: about:newtab/about:home are privileged pages that tabs.create()
+    // refuses to navigate to directly ("Illegal URL"). Omitting it makes
+    // Firefox open the container's own default new-tab page instead, which is
+    // exactly the tab we're replacing.
     await browser.tabs.create({
       cookieStoreId: target,
       windowId: newTab.windowId,
       index: newTab.index,
       active: newTab.active,
-      ...(keepUrl ? { url: newTab.url } : {}),
     });
     await browser.tabs.remove(newTab.id);
   } catch (err) {
