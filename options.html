@@ -56,7 +56,7 @@
     </p>
 
     <p class="check" style="margin-bottom: 0">
-      When a container&rsquo;s first tab needs a brand-new group
+      When opening a container for which a group doesn't yet exist
     </p>
     <label class="check" style="margin-top: 0.15rem">
       <input type="radio" name="newGroupWindow" value="new" />
@@ -64,10 +64,10 @@
     </label>
     <label class="check" style="margin: 0.15rem 0 0.15rem 0">
       <input type="radio" name="newGroupWindow" value="current" />
-      <span>Put it in the current window</span>
+      <span>Leave it in the current window</span>
     </label>
     <p class="hint">
-      Only when no group for that container exists yet. A tab that&rsquo;s already
+      When no group for that container exists yet. A tab that&rsquo;s already
       alone in its window stays put.
     </p>
 
@@ -89,9 +89,9 @@
       <span>Open new tabs in the current tab&rsquo;s container</span>
     </label>
     <p class="hint">
-      A blank new tab (Ctrl+T, the &ldquo;+&rdquo; button) inherits the container
-      of the tab you were on. Links already open in their own tab&rsquo;s
-      container.
+      A blank new tab (either by clicking a link or Ctrl+T) inherits the container
+      of the tab that is currently active. Links to sites that are assigned a specific
+      container will open in their assigned container.
     </p>
 
     <script type="module" src="options.js"></script>
