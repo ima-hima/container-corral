@@ -151,6 +151,15 @@ navigations for the new-tab inheritance feature).
   referring page first so Back goes one step, but that means a visible flash
   of that page loading under the new container's cookies — not worth it for
   one step of history, so we left it out.)
+- **A short list of Mozilla's own domains are invisible to every extension,
+  including this one** — `addons.mozilla.org`, `accounts.firefox.com`, and a
+  handful of related properties. Firefox never calls `webRequest` listeners
+  (or injects content scripts) for navigations to them, by design, so this
+  extension has no way to see or act on a link to one of those sites: new-tab
+  inheritance won't apply, and neither would Multi-Account Containers' own
+  per-site assignment. There's no workaround from an extension. The list is
+  controlled by the `extensions.webextensions.restrictedDomains` preference —
+  view it yourself by opening `about:config` and searching for that name.
 
 ## Development
 
