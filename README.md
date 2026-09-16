@@ -1,7 +1,7 @@
 # Container Corral
 
 A Firefox extension that corrals your Multi-Account Container tabs into
-Firefox's native tab groups (Firefox 140+):
+Firefox's native tab groups (Firefox 142+):
 
 1. **Group tabs by container.** One native tab group per container. Open a tab
    in your "Work" container and it joins the "Work" tab group; open one in
@@ -131,7 +131,7 @@ navigations for the new-tab inheritance feature).
 
 ## Limitations & known edge cases
 
-- **Requires Firefox 140+.**
+- **Requires Firefox 142+.**
 - Private windows are ignored (containers don't apply there).
 - Pinned tabs are left alone by the grouper.
 - Consolidation moves tabs between windows. A window whose last tab gets pulled
