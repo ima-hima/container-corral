@@ -5,7 +5,7 @@
   "description": "Group tabs by their Multi-Account Container into native tab groups.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "container-corral@ima-hima.github.io",
+      "id": "container-corral-ext@ima-hima.github.io",
       "strict_min_version": "142.0",
       "data_collection_permissions": {
         "required": ["none"]
