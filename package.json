@@ -1,6 +1,6 @@
 {
   "name": "container-corral",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Group tabs by their Multi-Account Container into native tab groups.",
   "private": true,
   "type": "module",
