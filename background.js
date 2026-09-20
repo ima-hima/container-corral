@@ -465,6 +465,7 @@ async function handleRequest(details) {
   }
 
   const acted = await reopenInContainer(tab, targetStore, details.url);
+  if (!acted) onTabSettled(details.tabId);
   return acted ? { cancel: true } : {};
 }
 
@@ -587,13 +588,23 @@ async function maybeInheritContainer(tabId, inheritFrom) {
     settleUntil,
     inheritFrom,
   });
-  if (!target) return;
+  if (!target) {
+    onTabSettled(tabId);
+    return;
+  }
 
   try {
     await browser.contextualIdentities.get(target);
   } catch {
+    onTabSettled(tabId);
     return;
   }
+
+  // Create the replacement straight in the window that holds the container's
+  // group. tabs.create() with no url focuses the address bar, but moving a tab
+  // to another window afterwards throws that focus away.
+  const destWindow = await windowHoldingGroup(target, newTab.windowId);
+  const sameWindow = destWindow === newTab.windowId;
 
   try {
     // No `url`: about:newtab/about:home are privileged pages that tabs.create()
@@ -602,13 +613,43 @@ async function maybeInheritContainer(tabId, inheritFrom) {
     // exactly the tab we're replacing.
     await browser.tabs.create({
       cookieStoreId: target,
-      windowId: newTab.windowId,
-      index: newTab.index,
+      windowId: destWindow,
+      ...(sameWindow ? { index: newTab.index } : {}),
       active: newTab.active,
     });
-    await browser.tabs.remove(newTab.id);
   } catch (err) {
     console.error("[CTG] inherit-container failed", err);
+    onTabSettled(tabId);
+    return;
+  }
+
+  if (newTab.active && !sameWindow) {
+    try {
+      await browser.windows.update(destWindow, { focused: true });
+    } catch {
+      /* window gone; nothing to raise */
+    }
+  }
+  try {
+    await browser.tabs.remove(newTab.id);
+  } catch {
+    /* already closed */
+  }
+}
+
+/** The window that already holds `store`'s group, else `fallbackWindowId`. */
+async function windowHoldingGroup(store, fallbackWindowId) {
+  try {
+    const desc = describe(store, await getContainers());
+    if (!desc) return fallbackWindowId;
+    const target = await findContainerGroup(
+      store,
+      desc,
+      await normalWindowIds()
+    );
+    return target ? target.windowId : fallbackWindowId;
+  } catch {
+    return fallbackWindowId;
   }
 }
 
@@ -683,7 +724,11 @@ browser.tabs.onCreated.addListener((tab) => {
     !tab.incognito &&
     isBlankNewTab(tab.url)
   ) {
+    // Don't group it yet: it's about to be replaced by a tab in the container,
+    // and grouping the doomed one would flash a "No Container" group. Whoever
+    // resolves the pending entry places the tab if it turns out to stay.
     pendingInherit.set(tab.id, inheritFrom);
+    return;
   }
   onTabSettled(tab.id);
 });
@@ -706,6 +751,7 @@ browser.tabs.onUpdated.addListener(
       // Navigated somewhere we don't route (file:, data:, …) — stop tracking.
       // An http(s) navigation is left for handleRequest, which keeps the URL.
       pendingInherit.delete(tabId);
+      onTabSettled(tabId);
     }
   },
   { properties: ["status", "url"] }

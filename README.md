@@ -113,6 +113,12 @@ would empty Firefox's last remaining window.
 - A blank tab you open and never navigate stays in no container. If your new-tab
   page is set to a blank page (not Firefox Home), a fresh `Ctrl+T` tab isn't
   moved into the container until you navigate it somewhere.
+- While a blank tab might still be replaced, it isn't added to the "No
+  Container" group (so enabling both that option and inheritance doesn't flash
+  a group). The replacement is created directly in the window that already
+  holds the container's group, rather than being moved there afterwards —
+  moving a tab between windows would drop the address-bar focus a new tab
+  normally has.
 - Links from other Firefox tabs are untouched (Firefox already opens them in
   their opener's container).
 

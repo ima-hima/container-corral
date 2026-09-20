@@ -362,3 +362,114 @@ test("newGroupWindow: a tab alone in its window is not moved", async () => {
   assert.equal(h.snapshotTabs().find((x) => x.id === t.id).w, 1);
   assert.equal(h.snapshotGroups()[0].w, 1);
 });
+
+/** Record every tabs.group / tabs.move / windows.create call the extension makes. */
+function spyOnPlacement(h) {
+  const calls = { group: [], move: [], createWindow: [] };
+  const wrap = (obj, name, bucket) => {
+    const orig = obj[name].bind(obj);
+    obj[name] = (...args) => {
+      calls[bucket].push(args[0]);
+      return orig(...args);
+    };
+  };
+  wrap(h.browser.tabs, "group", "group");
+  wrap(h.browser.tabs, "move", "move");
+  wrap(h.browser.windows, "create", "createWindow");
+  return calls;
+}
+
+test("new-tab inheritance: replacement is created in the window holding the group, never grouped as a default tab", async () => {
+  const h = await loadBackground({
+    containers: [WORK],
+    storageLocal: {
+      settings: {
+        newTabInheritsContainer: true,
+        groupDefaultContainer: true,
+        newGroupWindow: "current",
+      },
+    },
+  });
+  // The Work group lives in window 2; the user is on a Work tab in window 1.
+  const inGroup = h.addTab({ windowId: 2, cookieStoreId: "c-work" });
+  await h.bg.placeTab(inGroup.id);
+  const workGroup = h.snapshotGroups()[0].id;
+  const cur = h.addTab({ windowId: 1, cookieStoreId: "c-work", active: true });
+  await h.bg.trackActive(1, cur.id);
+
+  const blank = h.addTab({
+    windowId: 1,
+    cookieStoreId: "firefox-default",
+    url: "about:newtab",
+    active: true,
+  });
+  const calls = spyOnPlacement(h);
+  h.emit("tabs.onCreated", blank);
+  h.emit("tabs.onUpdated", blank.id, { status: "complete" }, {
+    ...blank,
+    url: "about:newtab",
+  });
+  await h.bg.settled();
+
+  assert.ok(!h.state.tabs.some((x) => x.id === blank.id), "blank tab replaced");
+  const fresh = h.state.tabs.find(
+    (x) => ![blank.id, cur.id, inGroup.id].includes(x.id)
+  );
+  assert.equal(fresh.cookieStoreId, "c-work");
+  assert.equal(fresh.windowId, 2, "created directly in the group's window");
+  // Real Firefox fires onCreated for the tab we just made; the fake doesn't.
+  h.emit("tabs.onCreated", fresh);
+  await h.bg.settled();
+  assert.equal(fresh.groupId, workGroup);
+  assert.ok(fresh.active, "replacement is the active tab");
+  assert.equal(h.state.focusedWindowId, 2, "group's window raised");
+
+  assert.ok(
+    calls.group.every((c) => !c.tabIds.includes(blank.id)),
+    "the doomed default tab was never grouped"
+  );
+  assert.ok(
+    calls.move.every((c) => c.windowId == null),
+    "no cross-window move (it would drop address-bar focus)"
+  );
+  assert.equal(calls.createWindow.length, 0);
+});
+
+test("new-tab inheritance: a pending tab that leaves for a non-routed URL is grouped after all", async () => {
+  const h = await loadBackground({
+    containers: [WORK],
+    storageLocal: {
+      settings: {
+        newTabInheritsContainer: true,
+        groupDefaultContainer: true,
+        newGroupWindow: "current",
+      },
+    },
+  });
+  const cur = h.addTab({ windowId: 1, cookieStoreId: "c-work", active: true });
+  await h.bg.trackActive(1, cur.id);
+  const t = h.addTab({
+    windowId: 1,
+    cookieStoreId: "firefox-default",
+    url: "about:blank",
+    active: true,
+  });
+
+  h.emit("tabs.onCreated", t);
+  await h.bg.settled();
+  assert.equal(
+    h.snapshotGroups().filter((g) => g.title === "No Container").length,
+    0,
+    "not grouped while it might still be replaced"
+  );
+
+  h.emit("tabs.onUpdated", t.id, { url: "file:///tmp/x" }, {
+    ...t,
+    url: "file:///tmp/x",
+  });
+  await h.bg.settled();
+
+  const group = h.snapshotGroups().find((g) => g.title === "No Container");
+  assert.ok(group, "now placed in the No Container group");
+  assert.equal(h.snapshotTabs().find((x) => x.id === t.id).g, group.id);
+});
