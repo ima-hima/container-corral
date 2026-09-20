@@ -473,3 +473,47 @@ test("new-tab inheritance: a pending tab that leaves for a non-routed URL is gro
   assert.ok(group, "now placed in the No Container group");
   assert.equal(h.snapshotTabs().find((x) => x.id === t.id).g, group.id);
 });
+
+test("new-tab inheritance: with the group in the same window, no lookups delay the swap", async () => {
+  const h = await loadBackground({
+    containers: [WORK],
+    storageLocal: {
+      settings: { newTabInheritsContainer: true, newGroupWindow: "current" },
+    },
+  });
+  const cur = h.addTab({ windowId: 1, cookieStoreId: "c-work", active: true });
+  await h.bg.placeTab(cur.id); // Work group in window 1, remembered
+  await h.bg.trackActive(1, cur.id);
+  const blank = h.addTab({
+    windowId: 1,
+    cookieStoreId: "firefox-default",
+    url: "about:newtab",
+    active: true,
+  });
+
+  // Anything beyond tabs.get -> tabs.create -> tabs.remove is latency the user
+  // sees as the doomed tab lingering.
+  const lookups = [];
+  for (const [obj, name] of [
+    [h.browser.contextualIdentities, "get"],
+    [h.browser.contextualIdentities, "query"],
+    [h.browser.windows, "getAll"],
+    [h.browser.tabGroups, "get"],
+    [h.browser.tabGroups, "query"],
+  ]) {
+    const orig = obj[name].bind(obj);
+    obj[name] = (...a) => {
+      lookups.push(name);
+      return orig(...a);
+    };
+  }
+
+  await h.bg.maybeInheritContainer(blank.id, "c-work");
+
+  assert.deepEqual(lookups, []);
+  assert.ok(!h.state.tabs.some((x) => x.id === blank.id), "blank tab replaced");
+  assert.equal(
+    h.state.tabs.filter((x) => x.cookieStoreId === "c-work").length,
+    2
+  );
+});

@@ -593,16 +593,11 @@ async function maybeInheritContainer(tabId, inheritFrom) {
     return;
   }
 
-  try {
-    await browser.contextualIdentities.get(target);
-  } catch {
-    onTabSettled(tabId);
-    return;
-  }
-
   // Create the replacement straight in the window that holds the container's
   // group. tabs.create() with no url focuses the address bar, but moving a tab
-  // to another window afterwards throws that focus away.
+  // to another window afterwards throws that focus away. Every round trip here
+  // is time the user spends looking at the tab we're about to close, so the
+  // common case (group in this window) skips the lookups entirely.
   const destWindow = await windowHoldingGroup(target, newTab.windowId);
   const sameWindow = destWindow === newTab.windowId;
 
@@ -618,6 +613,7 @@ async function maybeInheritContainer(tabId, inheritFrom) {
       active: newTab.active,
     });
   } catch (err) {
+    // Also how a container deleted since we last looked shows up.
     console.error("[CTG] inherit-container failed", err);
     onTabSettled(tabId);
     return;
@@ -637,8 +633,16 @@ async function maybeInheritContainer(tabId, inheritFrom) {
   }
 }
 
-/** The window that already holds `store`'s group, else `fallbackWindowId`. */
+/**
+ * The window that already holds `store`'s group, else `fallbackWindowId`. Trusts
+ * the in-memory group map to say "same window as the fallback" without asking
+ * Firefox; only a group remembered elsewhere is worth verifying.
+ */
 async function windowHoldingGroup(store, fallbackWindowId) {
+  const remembered = groupMap[store];
+  if (!remembered || remembered.windowId === fallbackWindowId) {
+    return fallbackWindowId;
+  }
   try {
     const desc = describe(store, await getContainers());
     if (!desc) return fallbackWindowId;
