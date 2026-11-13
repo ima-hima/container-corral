@@ -49,6 +49,34 @@ function serialize(task) {
   return queue;
 }
 
+/* ------------------------------------------------------------------ *
+ * Boot gate. Firefox suspends an idle event page and wakes it with the very
+ * event that needs handling, so that event reaches us before `settings` and
+ * `activeStore` have been loaded. Handlers that depend on them wait here;
+ * finishBoot() is always called (see `ready`), so nothing can wait forever.
+ * ------------------------------------------------------------------ */
+let booted = false;
+const bootWaiters = [];
+let resolveBootDone;
+const bootDone = new Promise((resolve) => (resolveBootDone = resolve));
+
+function afterBoot(fn) {
+  if (booted) fn();
+  else bootWaiters.push(fn);
+}
+
+function finishBoot() {
+  booted = true;
+  for (const fn of bootWaiters.splice(0)) {
+    try {
+      fn();
+    } catch (err) {
+      console.error("[CTG]", err);
+    }
+  }
+  resolveBootDone();
+}
+
 /* ================================================================== *
  * Shared helpers
  * ================================================================== */
@@ -449,6 +477,10 @@ async function handleRequest(details) {
   if (details.tabId < 0 || details.frameId !== 0) return {};
   if (wasJustRouted(details.url)) return {};
 
+  // On a cold wake this request can arrive before boot has decided which new
+  // tabs are waiting to inherit; answering early would let the link through.
+  if (!booted) await bootDone;
+
   // A blank new tab that was waiting to inherit a container is now navigating
   // somewhere — send it into that container *carrying this URL* (an external
   // link, tabs.create({url}), etc.).
@@ -559,13 +591,38 @@ browser.menus.onClicked.addListener((info, tab) => {
 
 // windowId -> cookieStoreId of the currently-active tab. onCreated fires before
 // onActivated, so when a foreground new tab appears this still holds the tab the
-// user was on.
+// user was on. Mirrored into storage.session (cleared on browser restart) so the
+// container you were on survives the event page being suspended; a cold wake
+// triggered by Ctrl+T can't recover it from the open tabs, because by then the
+// new tab is the active one.
 const activeStore = new Map();
+
+async function persistActiveStore() {
+  try {
+    await browser.storage.session.set({
+      activeStore: Object.fromEntries(activeStore),
+    });
+  } catch {
+    /* session storage unavailable; in-memory only */
+  }
+}
+
+async function loadActiveStore() {
+  try {
+    const s = await browser.storage.session.get("activeStore");
+    for (const [windowId, store] of Object.entries(s.activeStore || {})) {
+      activeStore.set(Number(windowId), store);
+    }
+  } catch {
+    /* seeded from the open tabs instead */
+  }
+}
 
 async function trackActive(windowId, tabId) {
   try {
     const t = await browser.tabs.get(tabId);
     activeStore.set(windowId, t.cookieStoreId || DEFAULT_STORE);
+    await persistActiveStore();
   } catch {
     /* tab gone */
   }
@@ -696,7 +753,7 @@ browser.runtime.onStartup.addListener(() => {
 });
 
 browser.tabs.onActivated.addListener(({ tabId, windowId }) => {
-  trackActive(windowId, tabId);
+  afterBoot(() => trackActive(windowId, tabId));
 });
 
 // Blank, opener-less, default-container new tabs opened while a container was
@@ -716,8 +773,17 @@ const isBlankNewTab = (url) =>
   !url || /^about:(blank|newtab|home|privatebrowsing)$/i.test(url);
 
 browser.tabs.onCreated.addListener((tab) => {
+  const coldStart = !booted;
+  afterBoot(() => {
+    handleCreated(tab);
+    if (coldStart) catchUpSettled(tab.id);
+  });
+});
+
+function handleCreated(tab) {
   // Capture the active container synchronously, before onActivated for this new
-  // tab overwrites it.
+  // tab overwrites it. (Both go through afterBoot, so on a cold wake they still
+  // run in event order.)
   const inheritFrom = activeStore.get(tab.windowId);
   if (
     settings.newTabInheritsContainer &&
@@ -735,7 +801,29 @@ browser.tabs.onCreated.addListener((tab) => {
     return;
   }
   onTabSettled(tab.id);
-});
+}
+
+/**
+ * After a cold wake the tab's "finished loading" event can already have come
+ * and gone before it was marked pending, and nothing else would resolve it.
+ */
+async function catchUpSettled(tabId) {
+  let t;
+  try {
+    t = await browser.tabs.get(tabId);
+  } catch {
+    return;
+  }
+  const inheritFrom = pendingInherit.get(tabId);
+  if (
+    inheritFrom !== undefined &&
+    t.status === "complete" &&
+    /^about:(newtab|home)$/i.test(t.url || "")
+  ) {
+    pendingInherit.delete(tabId);
+    serialize(() => maybeInheritContainer(tabId, inheritFrom));
+  }
+}
 
 browser.tabs.onUpdated.addListener(
   (tabId, changeInfo, tab) => {
@@ -794,11 +882,20 @@ browser.tabGroups.onRemoved.addListener((group) =>
  * ================================================================== */
 
 const ready = serialize(async () => {
-  await Promise.all([loadSettings(), loadGroupMap()]);
-  await buildMenus();
-  for (const t of await browser.tabs.query({ active: true })) {
-    activeStore.set(t.windowId, t.cookieStoreId || DEFAULT_STORE);
+  try {
+    await Promise.all([loadSettings(), loadGroupMap(), loadActiveStore()]);
+    // Only fill in windows the persisted map doesn't know about: after a cold
+    // wake the open tabs show the brand-new tab as active, which is not the
+    // container we want to inherit.
+    for (const t of await browser.tabs.query({ active: true })) {
+      if (!activeStore.has(t.windowId)) {
+        activeStore.set(t.windowId, t.cookieStoreId || DEFAULT_STORE);
+      }
+    }
+  } finally {
+    finishBoot();
   }
+  await buildMenus();
 });
 
 // Deferred so that, on a cold browser start, session restore has a moment to

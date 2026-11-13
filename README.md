@@ -121,6 +121,14 @@ would empty Firefox's last remaining window.
   normally has.
 - Links from other Firefox tabs are untouched (Firefox already opens them in
   their opener's container).
+- Firefox suspends an idle background page after ~30 s and wakes it with the
+  very event that needs handling, before settings have loaded. So the
+  per-window active container is mirrored into `storage.session`, and the
+  handlers that depend on settings (new tab created, tab activated, a
+  `webRequest` navigation) wait for boot to finish. Boot always finishes, so a
+  failure there can't leave a navigation waiting. (An open DevTools window on
+  the background page prevents suspension, which is why this doesn't show up
+  while debugging.)
 
 **Tab right-click menu**
 
@@ -157,6 +165,11 @@ navigations for the new-tab inheritance feature).
   referring page first so Back goes one step, but that means a visible flash
   of that page loading under the new container's cookies — not worth it for
   one step of history, so we left it out.)
+- The set of new tabs waiting to inherit is held in memory only. If your new-tab
+  page is a blank page and you leave a fresh tab untouched for ~30 s, the
+  background page is suspended and forgets it, so navigating that tab later
+  won't move it into the container. (With Firefox Home as the new-tab page the
+  tab is swapped immediately, so this doesn't apply.)
 - **A short list of Mozilla's own domains are invisible to every extension,
   including this one** — `addons.mozilla.org`, `accounts.firefox.com`, and a
   handful of related properties. Firefox never calls `webRequest` listeners

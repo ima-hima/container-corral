@@ -517,3 +517,104 @@ test("new-tab inheritance: with the group in the same window, no lookups delay t
     2
   );
 });
+
+/**
+ * Firefox suspends an idle MV3 event page and wakes it with the very event that
+ * needs handling. Import the module and fire events at once, without waiting
+ * for `ready`, to model that cold start.
+ */
+async function coldWake(init) {
+  const harness = installFakeBrowser(init);
+  const bg = await import(
+    new URL(`../background.js?${++loadCounter}`, import.meta.url)
+  );
+  return { ...harness, bg };
+}
+
+test("cold wake: the first Ctrl+T after the page was suspended is still inherited", async () => {
+  const h = await coldWake({
+    containers: [WORK],
+    storageLocal: { settings: { newTabInheritsContainer: true } },
+    storageSession: { activeStore: { 1: "c-work" } },
+  });
+  h.addTab({ windowId: 1, cookieStoreId: "c-work" });
+  const blank = h.addTab({
+    windowId: 1,
+    cookieStoreId: "firefox-default",
+    url: "about:blank",
+    active: true,
+  });
+
+  h.emit("tabs.onCreated", blank);
+  h.emit("tabs.onActivated", { tabId: blank.id, windowId: 1 });
+  h.emit("tabs.onUpdated", blank.id, { status: "complete", url: "about:newtab" }, {
+    ...blank,
+    url: "about:newtab",
+    status: "complete",
+  });
+  await h.bg.ready;
+  await h.bg.settled();
+
+  assert.ok(!h.state.tabs.some((x) => x.id === blank.id), "blank tab replaced");
+  assert.equal(
+    h.state.tabs.filter((x) => x.cookieStoreId === "c-work").length,
+    2
+  );
+});
+
+test("cold wake: an external link that navigates before boot finishes is still reopened in the container", async () => {
+  const h = await coldWake({
+    containers: [WORK],
+    storageLocal: { settings: { newTabInheritsContainer: true } },
+    storageSession: { activeStore: { 1: "c-work" } },
+  });
+  h.addTab({ windowId: 1, cookieStoreId: "c-work" });
+  const t = h.addTab({
+    windowId: 1,
+    cookieStoreId: "firefox-default",
+    url: "about:blank",
+    active: true,
+  });
+
+  h.emit("tabs.onCreated", t);
+  h.emit("tabs.onActivated", { tabId: t.id, windowId: 1 });
+  const res = await h.bg.handleRequest({
+    tabId: t.id,
+    frameId: 0,
+    url: "https://mail.example.com/message/42",
+  });
+  await h.bg.settled();
+
+  assert.deepEqual(res, { cancel: true });
+  const reopened = h.state.tabs.find((x) => x.url === "https://mail.example.com/message/42");
+  assert.ok(reopened, "reopened carrying the URL");
+  assert.equal(reopened.cookieStoreId, "c-work");
+});
+
+test("the active container is persisted so it survives suspension", async () => {
+  const h = await loadBackground({ containers: [WORK] });
+  const cur = h.addTab({ windowId: 1, cookieStoreId: "c-work", active: true });
+
+  await h.bg.trackActive(1, cur.id);
+
+  assert.deepEqual(h.state.storageSession.activeStore, { 1: "c-work" });
+});
+
+test("a failed boot never leaves a blocking request waiting", { timeout: 2000 }, async () => {
+  const h = installFakeBrowser({ containers: [WORK] });
+  h.browser.storage.local.get = async () => {
+    throw new Error("storage unavailable");
+  };
+  const bg = await import(
+    new URL(`../background.js?${++loadCounter}`, import.meta.url)
+  );
+
+  // If boot's failure were allowed to skip finishBoot(), this would hang and
+  // every page load in the browser would stall behind it.
+  const res = await bg.handleRequest({
+    tabId: 5,
+    frameId: 0,
+    url: "https://example.com/",
+  });
+  assert.deepEqual(res, {});
+});

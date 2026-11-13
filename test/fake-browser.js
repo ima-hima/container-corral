@@ -30,6 +30,7 @@ export function makeFakeBrowser(init = {}) {
     incognitoWindows: new Set(init.incognitoWindows || []),
     containers: new Map(), // cookieStoreId -> { cookieStoreId, name, color }
     storageLocal: { ...(init.storageLocal || {}) },
+    storageSession: { ...(init.storageSession || {}) },
     focusedWindowId: null,
   };
 
@@ -315,8 +316,25 @@ export function makeFakeBrowser(init = {}) {
     },
   };
 
+  const area = (bag) => ({
+    async get(keys) {
+      if (keys == null) return clone(state[bag]);
+      const list = Array.isArray(keys) ? keys : [keys];
+      const out = {};
+      for (const k of list) if (k in state[bag]) out[k] = clone(state[bag][k]);
+      return out;
+    },
+    async set(obj) {
+      Object.assign(state[bag], clone(obj));
+    },
+    async remove(keys) {
+      for (const k of Array.isArray(keys) ? keys : [keys]) delete state[bag][k];
+    },
+  });
+
   const storage = {
     onChanged: listener(),
+    session: area("storageSession"),
     local: {
       async get(keys) {
         if (keys == null) return clone(state.storageLocal);
